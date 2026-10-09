@@ -1,0 +1,363 @@
+<p>One possible approach to solve this problem:<br />
+&nbsp;</p>
+
+<p><strong>src/main/java/com/versions/Commands.java:</strong><br />
+&nbsp;</p>
+
+<pre>
+<code>package com.versions;
+
+import com.versions.Models.Change;
+import com.versions.Models.ChangeKind;
+import com.versions.Models.CommandResult;
+import com.versions.Models.Reason;
+import com.versions.Models.Release;
+import com.versions.Models.State;
+import com.versions.Models.Version;
+
+public final class Commands {
+    private Commands() {}
+
+    /// Find a release by its version number.
+    private static Release findRelease(State state, String version) {
+        for (Release r : state.releases) {
+            if (r.version.toString().equals(version)) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /// How big a change of this kind is, from patch up to major.
+    private static int typeRank(ChangeKind kind) {
+        switch (kind) {
+            case MAJOR: return 3;
+            case MINOR: return 2;
+            case PATCH: return 1;
+        }
+        return 1;
+    }
+
+    /// The version a change of this kind produces from the current one.
+    private static Version bump(Version current, ChangeKind kind) {
+        Version next = new Version(current.major, current.minor, current.patch);
+        if (kind == ChangeKind.MAJOR) {
+            next.major += 1;
+            next.minor = 0;
+            next.patch = 0;
+        } else if (kind == ChangeKind.MINOR) {
+            next.minor += 1;
+            next.patch = 0;
+        } else {
+            next.patch += 1;
+        }
+        return next;
+    }
+
+    /// True when a release other than the given version has not been pulled.
+    private static boolean hasOtherLiveRelease(State state, String version) {
+        for (Release release : state.releases) {
+            if (!release.yanked &amp;&amp; !release.version.toString().equals(version)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Build a successful result carrying the command&#x27;s output message.
+    private static CommandResult success(String message) {
+        CommandResult result = new CommandResult();
+        result.ok = true;
+        result.message = message;
+        return result;
+    }
+
+    /// Build a failed result carrying the reason code.
+    private static CommandResult failure(Reason reason) {
+        CommandResult result = new CommandResult();
+        result.reason = reason;
+        return result;
+    }
+
+    /// Note a change for the next release.
+    public static CommandResult change(State state, String type, String note) {
+        if (!&quot;major&quot;.equals(type) &amp;&amp; !&quot;minor&quot;.equals(type) &amp;&amp; !&quot;patch&quot;.equals(type)) {
+            return failure(Reason.INVALID_TYPE);
+        }
+        if (note.isEmpty()) {
+            return failure(Reason.EMPTY_NOTE);
+        }
+
+        Change noted = new Change(ChangeKind.parseChangeKind(type), note);
+        state.pending.add(noted);
+
+        return success(&quot;Noted &quot; + type + &quot;: &quot; + note + &quot; (&quot; + state.pending.size() + &quot; pending)&quot;);
+    }
+
+    /// Turn the pending changes into a new version.
+    public static CommandResult release(State state) {
+        if (state.pending.isEmpty()) {
+            return failure(Reason.NOTHING_TO_RELEASE);
+        }
+
+        ChangeKind bumpKind = ChangeKind.PATCH;
+        for (Change change : state.pending) {
+            if (typeRank(change.type) &gt; typeRank(bumpKind)) {
+                bumpKind = change.type;
+            }
+        }
+
+        Release fresh = new Release();
+        fresh.version = bump(state.version, bumpKind);
+        for (Change change : state.pending) {
+            fresh.notes.add(change.note);
+        }
+        fresh.yanked = false;
+
+        int count = state.pending.size();
+        state.pending.clear();
+        state.releases.add(0, fresh);
+        state.version = fresh.version;
+
+        return success(&quot;Released &quot; + fresh.version + &quot; (&quot; + count + &quot; changes)&quot;);
+    }
+
+    /// Pull a release.
+    public static CommandResult yank(State state, String version) {
+        Release target = findRelease(state, version);
+        if (target == null) {
+            return failure(Reason.VERSION_NOT_FOUND);
+        }
+        if (target.yanked) {
+            return failure(Reason.ALREADY_YANKED);
+        }
+        boolean wasCurrent = state.version.toString().equals(version);
+        if (wasCurrent &amp;&amp; !hasOtherLiveRelease(state, version)) {
+            return failure(Reason.NO_OTHER_VERSION);
+        }
+
+        target.yanked = true;
+        if (wasCurrent) {
+            for (Release release : state.releases) {
+                if (!release.yanked) {
+                    state.version = release.version;
+                    break;
+                }
+            }
+        }
+
+        return success(&quot;Yanked &quot; + version + &quot;; current version &quot; + state.version);
+    }
+}
+</code>
+</pre>
+
+<p><br />
+<strong>src/main/java/com/versions/Parser.java:</strong><br />
+&nbsp;</p>
+
+<pre>
+<code>package com.versions;
+
+import com.versions.Models.Change;
+import com.versions.Models.ChangeKind;
+import com.versions.Models.Release;
+import com.versions.Models.State;
+import com.versions.Models.Version;
+
+public final class Parser {
+    private Parser() {}
+
+    /// Read a version number from its text form.
+    public static Version parseVersionText(String text) {
+        int first = text.indexOf(&#x27;.&#x27;);
+        int second = text.indexOf(&#x27;.&#x27;, first + 1);
+        Version version = new Version();
+        version.major = Integer.parseInt(text.substring(0, first));
+        version.minor = Integer.parseInt(text.substring(first + 1, second));
+        version.patch = Integer.parseInt(text.substring(second + 1));
+        return version;
+    }
+
+    private static class JsonParser {
+        private final String json;
+        private int pos;
+
+        public JsonParser(String json) {
+            this.json = json != null ? json : &quot;&quot;;
+            this.pos = 0;
+        }
+
+        /// Parse the Version Bump state document into the in-memory State.
+        public State parseVersionsDoc() {
+            State state = new State();
+            skipWs();
+            expect(&#x27;{&#x27;);
+            while (true) {
+                skipWs();
+                if (peek() == &#x27;}&#x27;) {
+                    pos++;
+                    break;
+                }
+                String key = parseString();
+                skipWs();
+                expect(&#x27;:&#x27;);
+                skipWs();
+                if (&quot;version&quot;.equals(key)) {
+                    state.version = parseVersionText(parseString());
+                } else if (&quot;pending&quot;.equals(key)) {
+                    parseArray(() -&gt; state.pending.add(parseChangeObject()));
+                } else if (&quot;releases&quot;.equals(key)) {
+                    parseArray(() -&gt; state.releases.add(parseReleaseObject()));
+                }
+                skipWs();
+                if (peek() == &#x27;,&#x27;) {
+                    pos++;
+                }
+            }
+            return state;
+        }
+
+        /// Run parseElement once per item in a JSON array.
+        private void parseArray(Runnable parseElement) {
+            expect(&#x27;[&#x27;);
+            skipWs();
+            if (peek() == &#x27;]&#x27;) {
+                pos++;
+                return;
+            }
+            while (true) {
+                parseElement.run();
+                skipWs();
+                if (peek() == &#x27;,&#x27;) {
+                    pos++;
+                    skipWs();
+                    continue;
+                }
+                expect(&#x27;]&#x27;);
+                break;
+            }
+        }
+
+        /// Parse a single pending change object.
+        private Change parseChangeObject() {
+            Change change = new Change();
+            skipWs();
+            expect(&#x27;{&#x27;);
+            while (true) {
+                skipWs();
+                if (peek() == &#x27;}&#x27;) {
+                    pos++;
+                    break;
+                }
+                String key = parseString();
+                skipWs();
+                expect(&#x27;:&#x27;);
+                skipWs();
+                if (&quot;type&quot;.equals(key)) {
+                    change.type = ChangeKind.parseChangeKind(parseString());
+                } else if (&quot;note&quot;.equals(key)) {
+                    change.note = parseString();
+                }
+                skipWs();
+                if (peek() == &#x27;,&#x27;) {
+                    pos++;
+                }
+            }
+            return change;
+        }
+
+        /// Parse a single release object.
+        private Release parseReleaseObject() {
+            Release release = new Release();
+            skipWs();
+            expect(&#x27;{&#x27;);
+            while (true) {
+                skipWs();
+                if (peek() == &#x27;}&#x27;) {
+                    pos++;
+                    break;
+                }
+                String key = parseString();
+                skipWs();
+                expect(&#x27;:&#x27;);
+                skipWs();
+                if (&quot;version&quot;.equals(key)) {
+                    release.version = parseVersionText(parseString());
+                } else if (&quot;notes&quot;.equals(key)) {
+                    parseArray(() -&gt; release.notes.add(parseString()));
+                } else if (&quot;yanked&quot;.equals(key)) {
+                    release.yanked = parseBool();
+                }
+                skipWs();
+                if (peek() == &#x27;,&#x27;) {
+                    pos++;
+                }
+            }
+            return release;
+        }
+
+        private char peek() {
+            return pos &lt; json.length() ? json.charAt(pos) : &#x27;\0&#x27;;
+        }
+
+        private void expect(char c) {
+            if (peek() != c) {
+                throw new RuntimeException(&quot;JSON parse error: expected &#x27;&quot; + c + &quot;&#x27; at position &quot; + pos);
+            }
+            pos++;
+        }
+
+        private void skipWs() {
+            while (pos &lt; json.length() &amp;&amp; Character.isWhitespace(json.charAt(pos))) {
+                pos++;
+            }
+        }
+
+        private String parseString() {
+            expect(&#x27;&quot;&#x27;);
+            StringBuilder value = new StringBuilder();
+            while (pos &lt; json.length() &amp;&amp; json.charAt(pos) != &#x27;&quot;&#x27;) {
+                if (json.charAt(pos) == &#x27;\\&#x27; &amp;&amp; pos + 1 &lt; json.length()) {
+                    pos++;
+                    char escaped = json.charAt(pos++);
+                    switch (escaped) {
+                        case &#x27;&quot;&#x27;:  value.append(&#x27;&quot;&#x27;);  break;
+                        case &#x27;\\&#x27;: value.append(&#x27;\\&#x27;); break;
+                        case &#x27;/&#x27;:  value.append(&#x27;/&#x27;);  break;
+                        case &#x27;n&#x27;:  value.append(&#x27;\n&#x27;); break;
+                        case &#x27;r&#x27;:  value.append(&#x27;\r&#x27;); break;
+                        case &#x27;t&#x27;:  value.append(&#x27;\t&#x27;); break;
+                        default:   value.append(escaped);
+                    }
+                } else {
+                    value.append(json.charAt(pos++));
+                }
+            }
+            expect(&#x27;&quot;&#x27;);
+            return value.toString();
+        }
+
+        private boolean parseBool() {
+            if (json.startsWith(&quot;true&quot;, pos)) {
+                pos += 4;
+                return true;
+            }
+            if (json.startsWith(&quot;false&quot;, pos)) {
+                pos += 5;
+                return false;
+            }
+            throw new RuntimeException(&quot;JSON parse error: expected boolean at position &quot; + pos);
+        }
+    }
+
+    /// Parse the Version Bump state JSON into the in-memory State.
+    public static State parseVersionsJson(String doc) {
+        JsonParser parser = new JsonParser(doc);
+        return parser.parseVersionsDoc();
+    }
+}
+</code>
+</pre>
+
+<p>&nbsp;</p>
