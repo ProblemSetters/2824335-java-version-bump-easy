@@ -1,0 +1,189 @@
+<p dir="ltr">Every change waiting for the next release is recorded as major, minor, or patch. When a release is made, the biggest pending change decides which part of the version number goes up, so the number tells users how risky the upgrade is. A release can also be withdrawn after it is made. If the wrong part of the number goes up, a release leaves its changes pending, or a withdrawn version stays the current one, users install a version that is riskier than its number says or that should no longer be used.</p>
+
+<p dir="ltr"><br />
+Your task is to fix the version bump tool so that every command updates the data correctly and prints the correct success message or error reason.</p>
+
+<p dir="ltr"><br />
+<strong>State File</strong></p>
+
+<p dir="ltr"><strong>File: <span style="font-family:Courier New , Courier , monospace;">data/versions.json</span></strong></p>
+
+<p dir="ltr">For example:</p>
+
+<pre>
+<code class="language-json">{
+  &quot;version&quot;: &quot;1.5.2&quot;,
+  &quot;pending&quot;: [
+    {&quot;type&quot;:&quot;patch&quot;,&quot;note&quot;:&quot;fix the duplicate invite email&quot;},
+    {&quot;type&quot;:&quot;minor&quot;,&quot;note&quot;:&quot;export the audit log&quot;}
+  ],
+  &quot;releases&quot;: [
+    {
+      &quot;version&quot;: &quot;1.5.2&quot;,
+      &quot;notes&quot;: [&quot;retry failed uploads&quot;,&quot;tighten the session timeout&quot;],
+      &quot;yanked&quot;: false
+    },
+    {
+      &quot;version&quot;: &quot;1.5.1&quot;,
+      &quot;notes&quot;: [&quot;fix the csv export header&quot;],
+      &quot;yanked&quot;: true
+    }
+  ]
+}</code></pre>
+
+<p dir="ltr">Fields:</p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">version</span> (string): the current version, <span style="font-family:Courier New , Courier , monospace;">major.minor.patch</span>.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">pending</span> (list): changes waiting for the next release, in the order noted.</p>
+
+	<ul>
+		<li aria-level="2" dir="ltr">
+		<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">type</span> (string): <span style="font-family:Courier New , Courier , monospace;">major</span>, <span style="font-family:Courier New , Courier , monospace;">minor</span>, or <span style="font-family:Courier New , Courier , monospace;">patch</span>.</p>
+		</li>
+		<li aria-level="2" dir="ltr">
+		<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">note</span> (string): what changed.</p>
+		</li>
+	</ul>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">releases</span> (list): every release, newest first.</p>
+
+	<ul>
+		<li aria-level="2" dir="ltr">
+		<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">version</span> (string): the version number.</p>
+		</li>
+		<li aria-level="2" dir="ltr">
+		<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">notes</span> (list of strings): the notes it shipped with.</p>
+		</li>
+		<li aria-level="2" dir="ltr">
+		<p dir="ltr" role="presentation"><span style="font-family:Courier New , Courier , monospace;">yanked</span> (boolean): whether the release was pulled.</p>
+		</li>
+	</ul>
+	</li>
+</ul>
+
+<p dir="ltr">A note with spaces is quoted on the command line. When writing <span style="font-family:Courier New , Courier , monospace;">data/versions.json</span> back, preserve the field order shown above, and keep pending changes and releases in the order they appear in the file.</p>
+
+<p dir="ltr"><br />
+<strong>Command Output</strong></p>
+
+<p dir="ltr">Each command prints a one-line result on success, or <span style="font-family:Courier New , Courier , monospace;">Error: &lt;REASON&gt;</span> on failure. Its rules are checked in the order listed, stopping at the first failure, and on failure <span style="font-family:Courier New , Courier , monospace;">data/versions.json</span> is not modified.</p>
+
+<p dir="ltr"><br />
+<strong>Commands</strong></p>
+
+<p dir="ltr"><br />
+<strong><span style="font-family:Courier New , Courier , monospace;">change</span></strong></p>
+
+<p dir="ltr">Records a change for the next release.</p>
+
+<p dir="ltr"><strong>Usage</strong></p>
+
+<pre>
+<code>./versions change &lt;major|minor|patch&gt; &lt;note&gt;</code></pre>
+
+<p dir="ltr"><strong>Output</strong></p>
+
+<pre>
+<code>Noted &lt;type&gt;: &lt;note&gt; (&lt;n&gt; pending)</code></pre>
+
+<p dir="ltr"><strong>Rules</strong></p>
+
+<p dir="ltr">Check these rules in order and stop at the first failure:</p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If the type is not <span style="font-family:Courier New , Courier , monospace;">major</span>, <span style="font-family:Courier New , Courier , monospace;">minor</span>, or <span style="font-family:Courier New , Courier , monospace;">patch</span>, fail with <span style="font-family:Courier New , Courier , monospace;">INVALID_TYPE</span>.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If the note is empty, fail with <span style="font-family:Courier New , Courier , monospace;">EMPTY_NOTE</span>.</p>
+	</li>
+</ul>
+
+<p dir="ltr">On success, append the change.</p>
+
+<p dir="ltr"><br />
+<strong><span style="font-family:Courier New , Courier , monospace;">release</span></strong></p>
+
+<p dir="ltr">Creates a new version from the pending changes.</p>
+
+<p dir="ltr"><strong>Usage</strong></p>
+
+<pre>
+<code>./versions release</code></pre>
+
+<p dir="ltr"><strong>Output</strong></p>
+
+<pre>
+<code>Released &lt;version&gt; (&lt;n&gt; changes)</code></pre>
+
+<p dir="ltr"><strong>Rules</strong></p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If nothing is pending, fail with <span style="font-family:Courier New , Courier , monospace;">NOTHING_TO_RELEASE</span>.</p>
+	</li>
+</ul>
+
+<p dir="ltr">On success:</p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">Bump the current version by the biggest pending type: <span style="font-family:Courier New , Courier , monospace;">major</span> adds one to the first number and resets the other two to 0, <span style="font-family:Courier New , Courier , monospace;">minor</span> adds one to the second and resets the third, <span style="font-family:Courier New , Courier , monospace;">patch</span> adds one to the third.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">Insert the release at the front with the pending notes.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">Clear <span style="font-family:Courier New , Courier , monospace;">pending</span> and set <span style="font-family:Courier New , Courier , monospace;">version</span>.</p>
+	</li>
+</ul>
+
+<p dir="ltr"><br />
+<strong><span style="font-family:Courier New , Courier , monospace;">yank</span></strong></p>
+
+<p dir="ltr">Withdraws a release.</p>
+
+<p dir="ltr"><strong>Usage</strong></p>
+
+<pre>
+<code>./versions yank &lt;version&gt;</code></pre>
+
+<p dir="ltr"><strong>Output</strong></p>
+
+<pre>
+<code>Yanked &lt;version&gt;; current version &lt;version&gt;</code></pre>
+
+<p dir="ltr"><strong>Rules</strong></p>
+
+<p dir="ltr">Check these rules in order and stop at the first failure:</p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If no release has that number, fail with <span style="font-family:Courier New , Courier , monospace;">VERSION_NOT_FOUND</span>.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If it is already yanked, fail with <span style="font-family:Courier New , Courier , monospace;">ALREADY_YANKED</span>.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">If it is the current version and no other release is unyanked, fail with <span style="font-family:Courier New , Courier , monospace;">NO_OTHER_VERSION</span>.</p>
+	</li>
+</ul>
+
+<p dir="ltr">On success:</p>
+
+<ul>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">Mark it yanked.</p>
+	</li>
+	<li aria-level="1" dir="ltr">
+	<p dir="ltr" role="presentation">When it was the current version, the current version becomes the newest release that is not yanked.</p>
+	</li>
+</ul>
+
+<p><br />
+<strong>Note</strong>: Refer to <span style="font-family:Courier New , Courier , monospace;">README.md</span> for more details and examples.</p>
