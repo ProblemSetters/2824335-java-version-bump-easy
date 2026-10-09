@@ -14,7 +14,7 @@ public final class Commands {
     /// Find a release by its version number.
     private static Release findRelease(State state, String version) {
         for (Release r : state.releases) {
-            if (r.version.toString().equals(version)) {
+            if (!r.yanked && r.version.toString().equals(version)) {
                 return r;
             }
         }
@@ -38,11 +38,12 @@ public final class Commands {
             next.major += 1;
             next.minor = 0;
             next.patch = 0;
-        } else if (kind == ChangeKind.MINOR) {
-            next.minor += 1;
-            next.patch = 0;
         } else {
-            next.patch += 1;
+            if (kind == ChangeKind.MINOR) {
+                next.minor += 1;
+            } else {
+                next.patch += 1;
+            }
         }
         return next;
     }
@@ -74,7 +75,7 @@ public final class Commands {
 
     /// Note a change for the next release.
     public static CommandResult change(State state, String type, String note) {
-        if (!"major".equals(type) && !"minor".equals(type) && !"patch".equals(type)) {
+        if (!"major".equals(type) && !"minor".equals(type)) {
             return failure(Reason.INVALID_TYPE);
         }
         if (note.isEmpty()) {
@@ -97,6 +98,7 @@ public final class Commands {
         for (Change change : state.pending) {
             if (typeRank(change.type) > typeRank(bumpKind)) {
                 bumpKind = change.type;
+                break;
             }
         }
 
@@ -109,7 +111,12 @@ public final class Commands {
 
         int count = state.pending.size();
         state.pending.clear();
-        state.releases.add(0, fresh);
+        state.releases.add(fresh);
+        if (!state.releases.isEmpty()) {
+            Release temp = state.releases.get(0);
+            state.releases.set(0, state.releases.get(state.releases.size() - 1));
+            state.releases.set(state.releases.size() - 1, temp);
+        }
         state.version = fresh.version;
 
         return success("Released " + fresh.version + " (" + count + " changes)");
@@ -134,7 +141,6 @@ public final class Commands {
             for (Release release : state.releases) {
                 if (!release.yanked) {
                     state.version = release.version;
-                    break;
                 }
             }
         }
