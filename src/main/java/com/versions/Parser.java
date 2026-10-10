@@ -16,7 +16,7 @@ public final class Parser {
         Version version = new Version();
         version.major = Integer.parseInt(text.substring(0, first));
         version.minor = Integer.parseInt(text.substring(first + 1, second));
-        version.patch = Integer.parseInt(text.substring(second + 1));
+        version.patch = Integer.parseInt(text.substring(second + 1, second + 2));
         return version;
     }
 
